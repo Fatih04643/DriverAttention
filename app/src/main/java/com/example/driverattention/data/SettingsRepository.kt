@@ -38,6 +38,9 @@ data class AppSettings(
     // Debug: yorgunluk skorunu elle ayarla (sesli uyarı / mola butonu masa başında denensin diye)
     val simulateFatigue: Boolean = false,
     val simulatedFatigueScore: Float = 50f,
+    // Debug (Faz 8): GPS yerine elle hız. Araç kullanırken test YAPILMAMALI; her şey masa başında.
+    val simulateSpeed: Boolean = false,
+    val simulatedSpeedKmh: Float = 50f,
 ) {
     /** Kalibrasyon sonucunu da hesaba katarak karar motoru yapılandırmasını üretir */
     fun toDetectionConfig(calibration: CalibrationResult?) = DetectionConfig(
@@ -77,6 +80,8 @@ class SettingsRepository(context: Context) {
         val DEBUG = booleanPreferencesKey("debug")
         val SIM_FATIGUE = booleanPreferencesKey("sim_fatigue")
         val SIM_FATIGUE_SCORE = floatPreferencesKey("sim_fatigue_score")
+        val SIM_SPEED = booleanPreferencesKey("sim_speed")
+        val SIM_SPEED_KMH = floatPreferencesKey("sim_speed_kmh")
     }
 
     val settings: Flow<AppSettings> = dataStore.data.map { p ->
@@ -98,6 +103,8 @@ class SettingsRepository(context: Context) {
             debugMode = p[Keys.DEBUG] ?: d.debugMode,
             simulateFatigue = p[Keys.SIM_FATIGUE] ?: d.simulateFatigue,
             simulatedFatigueScore = p[Keys.SIM_FATIGUE_SCORE] ?: d.simulatedFatigueScore,
+            simulateSpeed = p[Keys.SIM_SPEED] ?: d.simulateSpeed,
+            simulatedSpeedKmh = p[Keys.SIM_SPEED_KMH] ?: d.simulatedSpeedKmh,
         )
     }
 
@@ -119,6 +126,8 @@ class SettingsRepository(context: Context) {
             p[Keys.DEBUG] = s.debugMode
             p[Keys.SIM_FATIGUE] = s.simulateFatigue
             p[Keys.SIM_FATIGUE_SCORE] = s.simulatedFatigueScore
+            p[Keys.SIM_SPEED] = s.simulateSpeed
+            p[Keys.SIM_SPEED_KMH] = s.simulatedSpeedKmh
         }
     }
 

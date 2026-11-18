@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,6 +32,9 @@ import androidx.compose.ui.unit.sp
 import com.example.driverattention.alert.displayMessage
 import com.example.driverattention.analysis.AlertLevel
 import com.example.driverattention.analysis.DriverStatus
+import com.example.driverattention.analysis.SpeedBand
+import com.example.driverattention.location.SpeedReading
+import com.example.driverattention.location.SpeedSource
 
 private val Green = Color(0xFF00C853)
 private val Blue = Color(0xFF2979FF)
@@ -98,4 +102,46 @@ fun AlertBanner(status: DriverStatus, modifier: Modifier = Modifier) {
         fontWeight = FontWeight.Bold,
         textAlign = TextAlign.Center,
     )
+}
+
+/**
+ * Hız rozeti (Faz 8): anlık hız + "Duruyor / Sürüşte". Simülasyondaysa belirgin kırmızı
+ * "SİMÜLASYON" etiketi gösterilir ki gerçek GPS verisiyle karıştırılmasın.
+ */
+@Composable
+fun SpeedBadge(
+    speed: SpeedReading,
+    band: SpeedBand,
+    locationPermission: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val simulated = speed.source == SpeedSource.SIMULATED
+    val (stateText, stateColor) = when {
+        speed.kmh == null && !locationPermission -> "Konum izni yok" to Gray
+        speed.kmh == null -> "GPS bekleniyor" to Gray
+        band == SpeedBand.STOPPED -> "Duruyor" to Blue
+        else -> "Sürüşte" to Green
+    }
+    Column(
+        modifier = modifier
+            .background(Color(0x99000000), RoundedCornerShape(12.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalAlignment = Alignment.End,
+    ) {
+        Text(
+            speed.kmh?.let { "%.0f km/s".format(it) } ?: "— km/s",
+            color = Color.White, fontSize = 20.sp, fontWeight = FontWeight.Bold,
+        )
+        Text(stateText, color = stateColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        if (simulated) {
+            Text(
+                "SİMÜLASYON",
+                modifier = Modifier
+                    .padding(top = 2.dp)
+                    .background(Red, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
+                color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            )
+        }
+    }
 }

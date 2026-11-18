@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,10 +73,46 @@ fun MonitorScreen(viewModel: MonitorViewModel) {
         permissionDenied = !granted
     }
 
-    // İzin yoksa ekran ilk açıldığında otomatik olarak iste
+    // İlk açılışta kamera + konum (Faz 8) izinleri birlikte istenir. Böylece izin pencereleri
+    // kalibrasyon başlamadan kapanmış olur (pencereye bakarken kalibrasyon bozulmasın).
+    val firstRunLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        val camera = result[Manifest.permission.CAMERA] == true
+        hasCameraPermission = camera
+        permissionDenied = !camera
+        viewModel.onLocationPermissionResult()
+    }
+
+    // Kamera izni önceden verilmiş ama konum hiç sorulmamışsa (Faz 8'den önceki kurulumlar):
+    // sadece konumu sor; pencere kalibrasyon sırasında açıldığı için cevaptan sonra kalibrasyonu yenile
+    val locationLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        viewModel.onLocationPermissionResult()
+        viewModel.restartCalibrationIfInProgress()
+    }
+    var locationAsked by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
-        if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+        viewModel.onLocationPermissionResult() // mevcut izin durumunu oku
+        val locationGranted = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.ACCESS_FINE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
+        when {
+            !hasCameraPermission -> firstRunLauncher.launch(
+                arrayOf(
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION,
+                )
+            )
+            !locationGranted && !locationAsked -> {
+                locationAsked = true
+                locationLauncher.launch(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                )
+            }
         }
     }
 
@@ -129,7 +166,7 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 val infoStyle = MaterialTheme.typography.bodyMedium.copy(
-                    fontFamily = FontFamily.Monospace, fontSize = 14.sp, color = Color.White
+                    fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color.White
                 )
                 Text("FPS      : %.1f".format(state.fps), style = infoStyle)
                 Text("İşlem    : ${state.processingTimeMs} ms", style = infoStyle)
@@ -138,8 +175,8 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
                     Text("Çözünürlük: ${face.imageWidth}x${face.imageHeight}", style = infoStyle)
                 }
                 Text(
-                    "Işık     : %.0f%s (ön işlem %d ms)".format(
-                        state.brightness, if (state.lowLightActive) " ☾ iyileştirme" else "", state.preprocessMs,
+                    "Işık     : %.0f%s · %d ms".format(
+                        state.brightness, if (state.lowLightActive) " ☾" else "", state.preprocessMs,
                     ),
                     style = infoStyle.copy(color = if (state.lowLightActive) Color(0xFFFFEB3B) else Color.White),
                 )
@@ -169,6 +206,17 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
                 val refYaw = state.calibration?.baselineYawDeg ?: 0f
                 val refPitch = state.calibration?.baselinePitchDeg ?: 0f
                 Text("Referans : yaw %+.0f° pitch %+.0f°".format(refYaw, refPitch), style = infoStyle)
+                // Faz 8: hız bandı ve o banttaki dikkat dağınıklığı süresi
+                if (state.mode == MonitorMode.MONITORING) {
+                    val rules = state.speedRules
+                    val distraction = when {
+                        !rules.distractionAlerts -> "kapalı"
+                        rules.distractionMs != null -> "%.1f sn".format(rules.distractionMs / 1000f)
+                        else -> "ayar"
+                    }
+                    Text("Hız bandı: ${rules.band}", style = infoStyle)
+                    Text("Dikkat dğ: $distraction", style = infoStyle)
+                }
                 state.metrics?.headPose?.let { p ->
                     Text(
                         "Fark     : yaw %+.0f° pitch %+.0f°".format(p.yaw - refYaw, p.pitch - refPitch),
@@ -179,6 +227,11 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
                     Text("PERCLOS  : %.1f %%".format(s.perclos * 100), style = infoStyle)
                     Text("Göz kapalı: ${s.eyesClosedMs} ms", style = infoStyle)
                     Text("Esneme/5dk: ${s.recentYawnCount}", style = infoStyle)
+                }
+                // Faz 7: yorgunluk skorunun bileşen dökümü (sağdaki göstergeyle çakışmasın diye burada)
+                state.fatigue?.let { fatigue ->
+                    Spacer(Modifier.height(6.dp))
+                    FatigueBreakdown(fatigue, style = infoStyle)
                 }
                 if (state.csvRecording) Text("● CSV kaydı açık", style = infoStyle.copy(color = Color(0xFFFF5252)))
                 state.error?.let { Text("Hata: $it", style = infoStyle.copy(color = Color(0xFFFF5252))) }
@@ -192,9 +245,11 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             StatusIndicator(mode = state.mode, status = state.status)
+            if (state.mode == MonitorMode.MONITORING) {
+                SpeedBadge(speed = state.speed, band = state.speedRules.band, locationPermission = state.locationPermission)
+            }
             state.fatigue?.let { fatigue ->
                 FatigueGauge(fatigue)
-                if (state.debugMode) FatigueBreakdown(fatigue)
             }
         }
 

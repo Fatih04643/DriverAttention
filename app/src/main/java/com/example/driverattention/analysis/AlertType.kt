@@ -25,4 +25,9 @@ enum class AlertType(val level: AlertLevel) {
 }
 
 /** Tetiklenen tek bir uyarı (ses/titreşim bu olaylara göre çalınır, Faz 5'te kaydedilecek) */
-data class AlertEvent(val type: AlertType, val timestampMs: Long)
+data class AlertEvent(
+    val type: AlertType,
+    val timestampMs: Long,
+    // false = sadece görsel (ör. araç dururken mikro uyku, Faz 8). Kayda yine geçer.
+    val audible: Boolean = true,
+)

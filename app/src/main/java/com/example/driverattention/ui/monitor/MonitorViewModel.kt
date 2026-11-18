@@ -18,6 +18,11 @@ import com.example.driverattention.analysis.AlertType
 import com.example.driverattention.analysis.FatigueScore
 import com.example.driverattention.analysis.FatigueScoreCalculator
 import com.example.driverattention.analysis.FatigueScoreConstants
+import com.example.driverattention.analysis.SpeedPolicy
+import com.example.driverattention.analysis.SpeedRules
+import com.example.driverattention.location.SpeedProvider
+import com.example.driverattention.location.SpeedReading
+import com.example.driverattention.location.SpeedSource
 import com.example.driverattention.analysis.Point2
 import com.example.driverattention.camera.FrameAnalyzer
 import com.example.driverattention.camera.FrameInfo
@@ -64,6 +69,9 @@ data class MonitorUiState(
     val lowLightActive: Boolean = false, // bu karede histogram eşitleme uygulandı mı
     val preprocessMs: Long = 0,
     val fatigue: FatigueScore? = null, // sadece izleme sırasında dolu (Faz 7)
+    val speed: SpeedReading = SpeedReading.NONE, // Faz 8: anlık hız ve kaynağı
+    val speedRules: SpeedRules = SpeedRules.UNKNOWN,
+    val locationPermission: Boolean = false,
     val csvRecording: Boolean = false,
     val error: String? = null,
 )
@@ -91,6 +99,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     private var fatigueCalculator = FatigueScoreCalculator()
     private var lastScoreSaveMs: Long? = null
     private val alertManager = AlertManager(app)
+    private val speedProvider = SpeedProvider(app)
     private val sessionRepository = SessionRepository.get(app)
     private val settingsRepository = SettingsRepository(app)
 
@@ -175,9 +184,17 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
             when (mode) {
                 MonitorMode.CALIBRATING -> processCalibration(frame.timestampMs, metrics)
                 MonitorMode.MONITORING -> {
-                    val output = engine.update(frame.timestampMs, metrics)
+                    // ---- Hız (Faz 8): simülasyon açıksa elle verilen hız, değilse GPS ----
+                    val speed = if (settings.simulateSpeed) {
+                        SpeedReading(settings.simulatedSpeedKmh, SpeedSource.SIMULATED)
+                    } else {
+                        speedProvider.current(frame.timestampMs)
+                    }
+                    val speedRules = SpeedPolicy.rulesFor(speed.kmh)
+
+                    val output = engine.update(frame.timestampMs, metrics, speedRules)
                     if (output.newAlerts.isNotEmpty()) {
-                        alertManager.onAlerts(output.newAlerts)
+                        alertManager.onAlerts(output.newAlerts, louder = speedRules.louderAlarm)
                         sessionRepository.recordAlerts(output.newAlerts)
                     }
 
@@ -187,7 +204,8 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                         timestampMs = frame.timestampMs,
                         eyesClosed = metrics?.let { it.rawEar < engine.config.earThreshold },
                         perclos = output.status.perclos,
-                        yawnActive = AlertType.YAWN in output.status.activeConditions,
+                        // Araç dururken esneme uyarılmaz ama skora yine sayılır ("kaydedilir")
+                        yawnActive = AlertType.YAWN in output.status.detectedConditions,
                         distractionActive = AlertType.DISTRACTION in output.status.activeConditions,
                         overrideScore = if (settings.simulateFatigue) settings.simulatedFatigueScore else null,
                     )
@@ -202,8 +220,11 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                     csvLogger?.log(
                         frame.timestampMs, metrics, output.status, lastFps, frame.processingTimeMs,
                         info.brightness, info.enhanced, fatigue.score,
+                        speed.kmh, speed.source.csvName,
                     )
-                    _uiState.update { it.copy(status = output.status, fatigue = fatigue) }
+                    _uiState.update {
+                        it.copy(status = output.status, fatigue = fatigue, speed = speed, speedRules = speedRules)
+                    }
                 }
                 MonitorMode.STOPPED -> Unit
             }
@@ -276,6 +297,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
         mode = MonitorMode.MONITORING
 
         sessionRepository.startSession(engine.config.earThreshold, calibrated = newCalibration != null)
+        speedProvider.start() // konum izni yoksa hiçbir şey yapmaz
         csvLogger = if (settings.debugMode) MetricsCsvLogger.create(getApplication()) else null
 
         _uiState.update {
@@ -295,6 +317,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     private fun endSessionIfMonitoring() {
         if (mode != MonitorMode.MONITORING) return
         alertManager.stop()
+        speedProvider.stop() // izleme yokken GPS'i kapat (pil)
         val path = csvLogger?.let { it.close(); it.file.absolutePath }
         csvLogger = null
         sessionRepository.finishSession(path)
@@ -306,6 +329,11 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------------------------------------------------------------
 
     /** Kalibrasyonu (yeniden) başlatır */
+    /** Kalibrasyon sürerken araya bir izin penceresi girdiyse ölçümü baştan al */
+    fun restartCalibrationIfInProgress() {
+        if (synchronized(lock) { mode == MonitorMode.CALIBRATING }) startCalibration()
+    }
+
     fun startCalibration() = synchronized(lock) {
         endSessionIfMonitoring()
         mode = MonitorMode.CALIBRATING
@@ -330,13 +358,20 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     fun stopMonitoring() = synchronized(lock) {
         endSessionIfMonitoring()
         mode = MonitorMode.STOPPED
-        _uiState.update { it.copy(mode = mode, status = null, fatigue = null) }
+        _uiState.update { it.copy(mode = mode, status = null, fatigue = null, speed = SpeedReading.NONE) }
     }
 
     fun toggleOverlay() {
         viewModelScope.launch {
             settingsRepository.update { it.copy(showOverlay = !it.showOverlay) }
         }
+    }
+
+    /** Konum izni sonucu (ekrandan). İzin izleme sırasında verildiyse GPS hemen başlar. */
+    fun onLocationPermissionResult() = synchronized(lock) {
+        val granted = speedProvider.hasPermission()
+        _uiState.update { it.copy(locationPermission = granted) }
+        if (granted && mode == MonitorMode.MONITORING) speedProvider.start()
     }
 
     override fun onCleared() {

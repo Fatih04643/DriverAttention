@@ -64,8 +64,13 @@ class AlertManager(context: Context) {
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    private val toneGenerator: ToneGenerator? = try {
-        ToneGenerator(AudioManager.STREAM_ALARM, ToneGenerator.MAX_VOLUME)
+    // İki ton üreteci (Faz 8): normal alarm %80, otoyol hızında (> 100 km/s) %100 ve daha uzun.
+    // Sistemin alarm ses ayarına dokunmuyoruz; fark ton üretecinin kendi seviyesinden gelir.
+    private val toneGenerator: ToneGenerator? = createTone(NORMAL_TONE_VOLUME)
+    private val loudToneGenerator: ToneGenerator? = createTone(ToneGenerator.MAX_VOLUME)
+
+    private fun createTone(volume: Int): ToneGenerator? = try {
+        ToneGenerator(AudioManager.STREAM_ALARM, volume)
     } catch (e: RuntimeException) {
         Log.w(TAG, "ToneGenerator oluşturulamadı", e)
         null
@@ -105,21 +110,29 @@ class AlertManager(context: Context) {
      * Karar motorunun bu karede tetiklediği uyarıları çalar. Aynı anda birden fazla uyarı
      * gelirse sesler üst üste binmesin diye sadece en önemlisi çalınır.
      */
-    fun onAlerts(events: List<AlertEvent>) {
-        val event = events.maxByOrNull { it.type.level } ?: return
+    fun onAlerts(events: List<AlertEvent>, louder: Boolean = false) {
+        // audible = false olanlar (araç dururken mikro uyku) sadece ekranda gösterilir
+        val event = events.filter { it.audible }.maxByOrNull { it.type.level } ?: return
         when (event.type.level) {
-            AlertLevel.CRITICAL -> playCritical(event.type)
+            AlertLevel.CRITICAL -> playCritical(event.type, louder)
             AlertLevel.WARNING -> playWarning(event.type)
             AlertLevel.INFO, AlertLevel.NONE -> Unit // sadece görsel
         }
     }
 
-    private fun playCritical(type: AlertType) {
-        if (soundEnabled) toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 1_500)
+    private fun playCritical(type: AlertType, louder: Boolean) {
+        if (soundEnabled) {
+            if (louder) {
+                loudToneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 2_500)
+            } else {
+                toneGenerator?.startTone(ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK, 1_500)
+            }
+        }
         // Güçlü titreşim: 3 uzun darbe
         vibrate(longArrayOf(0, 500, 150, 500, 150, 500), intArrayOf(0, 255, 0, 255, 0, 255))
         // Sesli uyarı alarm tonu bittikten sonra (üst üste binmesin)
-        type.spokenMessage()?.let { msg -> mainHandler.postDelayed({ speak(msg) }, 1_600) }
+        val delay = if (louder) 2_600L else 1_600L
+        type.spokenMessage()?.let { msg -> mainHandler.postDelayed({ speak(msg) }, delay) }
     }
 
     private fun playWarning(type: AlertType) {
@@ -173,6 +186,7 @@ class AlertManager(context: Context) {
     fun stop() {
         mainHandler.removeCallbacksAndMessages(null)
         toneGenerator?.stopTone()
+        loudToneGenerator?.stopTone()
         vibrator?.cancel()
         if (ttsReady) tts.stop()
     }
@@ -180,10 +194,12 @@ class AlertManager(context: Context) {
     fun release() {
         stop()
         toneGenerator?.release()
+        loudToneGenerator?.release()
         tts.shutdown()
     }
 
     companion object {
         private const val TAG = "AlertManager"
+        private const val NORMAL_TONE_VOLUME = 80
     }
 }

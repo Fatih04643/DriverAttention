@@ -7,6 +7,12 @@
     <!-- Uyarılarda telefonu titreştirmek için (çalışma zamanında istenmez) -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Faz 8: GPS ile araç hızı. Hız için hassas konum (FINE) gerekir; Android 12+
+         FINE istenirken COARSE da birlikte istenmelidir. Konum hiçbir yere gönderilmez. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+
     <!-- Ön kamera zorunlu; arka kamera şart değil -->
     <uses-feature android:name="android.hardware.camera.front" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />

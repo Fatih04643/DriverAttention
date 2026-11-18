@@ -38,6 +38,8 @@ class MetricsCsvLogger private constructor(val file: File) {
         brightness: Float,
         enhanced: Boolean,
         fatigueScore: Float,
+        speedKmh: Float?,
+        speedSource: String,
     ) {
         if (startMs < 0) startMs = timestampMs
         val p = metrics?.headPose
@@ -59,6 +61,8 @@ class MetricsCsvLogger private constructor(val file: File) {
             brightness.fmt(1),
             if (enhanced) "1" else "0",
             fatigueScore.fmt(1),
+            speedKmh.fmt(1),
+            speedSource,
         )
         writer.write(row.joinToString(","))
         writer.newLine()
@@ -77,7 +81,7 @@ class MetricsCsvLogger private constructor(val file: File) {
 
     companion object {
         private const val HEADER =
-            "t_ms,face,ear,ear_left,ear_right,mar,yaw,pitch,roll,perclos,level,active,fps,processing_ms,brightness,low_light_enhanced,fatigue_score"
+            "t_ms,face,ear,ear_left,ear_right,mar,yaw,pitch,roll,perclos,level,active,fps,processing_ms,brightness,low_light_enhanced,fatigue_score,speed_kmh,speed_source"
 
         fun create(context: Context): MetricsCsvLogger? = try {
             val dir = File(context.getExternalFilesDir(null) ?: context.filesDir, "csv").apply { mkdirs() }

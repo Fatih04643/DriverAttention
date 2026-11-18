@@ -5,10 +5,14 @@ import kotlin.math.abs
 /** Sürücünün o anki durumu (ekranda gösterilir) */
 data class DriverStatus(
     val level: AlertLevel,
-    val activeConditions: Set<AlertType>,
+    val activeConditions: Set<AlertType>, // uyarı verilen (ekranda gösterilen) koşullar
     val perclos: Float,
     val eyesClosedMs: Long,
     val recentYawnCount: Int,
+    // Tespit edilen TÜM koşullar. Araç dururken bazı koşullar tespit edilir ama uyarılmaz
+    // (Faz 8); bunlar burada kalır → CSV'ye ve yorgunluk skoruna yine girer.
+    val detectedConditions: Set<AlertType> = activeConditions,
+    val speedBand: SpeedBand = SpeedBand.UNKNOWN,
 )
 
 /** Her kare için motorun çıktısı: anlık durum + bu karede yeni tetiklenen uyarılar */
@@ -28,6 +32,10 @@ data class EngineOutput(
  *   - Esneme          : MAR > 0.6, ≥ 1 sn; 5 dk'da ≥ 3 → yorgunluk → UYARI
  *   - Dikkat dağınıklığı: |yaw| > 30° veya pitch < -20°, ≥ 2 sn    → UYARI
  *   - Yüz yok         : ≥ 3 sn                                     → BİLGİ
+ *
+ * Hıza duyarlılık (Faz 8): [update]'e verilen [SpeedRules] dikkat dağınıklığı süresini
+ * değiştirir ve araç dururken bazı uyarıları susturur. Koşullar yine TESPİT edilir; sadece
+ * uyarıya dönüşmez. Hız bilinmiyorsa (SpeedRules.UNKNOWN) davranış Faz 4 ile aynıdır.
  *
  * Aynı uyarının art arda çalmasını önlemek için her uyarı türünün son çalma zamanı tutulur
  * (cooldown). Zaman, kameranın kare zaman damgasından gelir; böylece sınıf saf Kotlin'dir ve
@@ -56,8 +64,13 @@ class DriverStateEngine(config: DetectionConfig = DetectionConfig()) {
     /**
      * @param timestampMs Karenin zamanı (ms)
      * @param metrics     Yüz metrikleri; yüz bulunamadıysa null
+     * @param speedRules  Araç hızına göre kurallar (bkz. SpeedPolicy)
      */
-    fun update(timestampMs: Long, metrics: FaceMetrics?): EngineOutput {
+    fun update(
+        timestampMs: Long,
+        metrics: FaceMetrics?,
+        speedRules: SpeedRules = SpeedRules.UNKNOWN,
+    ): EngineOutput {
         val t = timestampMs
         val active = mutableSetOf<AlertType>()
         var eyesClosedMs = 0L
@@ -119,7 +132,9 @@ class DriverStateEngine(config: DetectionConfig = DetectionConfig()) {
                 )
             if (lookingAway) {
                 if (distractedSince == null) distractedSince = t
-                if (t - distractedSince!! >= config.distractionMs) active += AlertType.DISTRACTION
+                // Hız biliniyorsa süre hıza göre (yüksek hızda daha kısa), yoksa ayarlardaki değer
+                val requiredMs = speedRules.distractionMs ?: config.distractionMs
+                if (t - distractedSince!! >= requiredMs) active += AlertType.DISTRACTION
             } else {
                 distractedSince = null
             }
@@ -128,8 +143,17 @@ class DriverStateEngine(config: DetectionConfig = DetectionConfig()) {
         // ---- 5) Sık esneme → yorgunluk ----
         if (yawnTimes.size >= config.yawnsForFatigue) active += AlertType.FATIGUE_YAWNING
 
+        // ---- Hız kuralları: hangi koşullar uyarıya dönüşür? ----
+        val alertable = active.filterTo(mutableSetOf()) { type ->
+            when (type) {
+                AlertType.DISTRACTION -> speedRules.distractionAlerts
+                AlertType.YAWN, AlertType.FATIGUE_YAWNING, AlertType.FATIGUE_PERCLOS -> speedRules.nonCriticalAlerts
+                AlertType.MICROSLEEP, AlertType.NO_FACE -> true // mikro uyku dururken de en az görsel
+            }
+        }
+
         // ---- Uyarı tetikleme (cooldown kontrolü) ----
-        val newAlerts = active
+        val newAlerts = alertable
             .filter { type ->
                 val last = lastAlertAt[type]
                 last == null || t - last >= cooldownFor(type)
@@ -141,17 +165,23 @@ class DriverStateEngine(config: DetectionConfig = DetectionConfig()) {
         if (AlertType.FATIGUE_YAWNING in newAlerts) newAlerts.remove(AlertType.YAWN)
 
         val status = DriverStatus(
-            level = active.maxOfOrNull { it.level } ?: AlertLevel.NONE,
-            activeConditions = active,
+            level = alertable.maxOfOrNull { it.level } ?: AlertLevel.NONE,
+            activeConditions = alertable,
             perclos = perclosTracker.perclos,
             eyesClosedMs = eyesClosedMs,
             recentYawnCount = yawnTimes.size,
+            detectedConditions = active,
+            speedBand = speedRules.band,
         )
         return EngineOutput(
             status = status,
             newAlerts = newAlerts
                 .sortedByDescending { it.level } // en önemli uyarı önce
-                .map { AlertEvent(it, t) },
+                .map { type ->
+                    // Araç dururken mikro uyku: kaydedilir ve ekranda gösterilir ama ses/titreşim yok
+                    val audible = !(type == AlertType.MICROSLEEP && !speedRules.microsleepAudible)
+                    AlertEvent(type, t, audible)
+                },
         )
     }
 

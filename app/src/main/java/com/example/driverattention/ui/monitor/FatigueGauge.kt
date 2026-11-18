@@ -28,7 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,35 +148,24 @@ fun FatigueGauge(fatigue: FatigueScore, modifier: Modifier = Modifier) {
 }
 
 /**
- * Debug modda skorun bileşen dökümü: her satırda ham ölçüm ve skora katkısı (puan).
+ * Debug modda skorun bileşen dökümü (debug panelinin içinde): ham ölçüm ve skora katkısı (puan).
  * Katkıların toplamı = ham skor. Raporda "skor neden yükseldi" sorusunu cevaplar.
  */
 @Composable
-fun FatigueBreakdown(fatigue: FatigueScore, modifier: Modifier = Modifier) {
+fun FatigueBreakdown(fatigue: FatigueScore, style: TextStyle) {
     val c: FatigueComponents = fatigue.components
     val rows = listOf(
         Triple("PERCLOS", "%.0f%%".format(c.perclos * 100), C.WEIGHT_PERCLOS * c.perclosNorm),
-        Triple("Uzun kapanma", "${c.longClosureCount}/5dk", C.WEIGHT_LONG_CLOSURES * c.longClosuresNorm),
+        Triple("Uzun kap.", "${c.longClosureCount}/5dk", C.WEIGHT_LONG_CLOSURES * c.longClosuresNorm),
         Triple("Esneme", "${c.yawnCount}/10dk", C.WEIGHT_YAWNS * c.yawnsNorm),
-        Triple("Dikkat dağ.", "${c.distractionCount}/5dk", C.WEIGHT_DISTRACTIONS * c.distractionsNorm),
+        Triple("Dikkat dğ", "${c.distractionCount}/5dk", C.WEIGHT_DISTRACTIONS * c.distractionsNorm),
         Triple("Sürüş", "%.0f dk".format(c.drivingMinutes), C.WEIGHT_DRIVING_TIME * c.drivingTimeNorm),
         Triple("Kırpma", c.avgBlinkMs?.let { "%.0f ms".format(it) } ?: "-", C.WEIGHT_BLINK_DURATION * c.blinkDurationNorm),
     )
-    Column(
-        modifier = modifier
-            .background(Color(0x99000000), RoundedCornerShape(8.dp))
-            .padding(horizontal = 8.dp, vertical = 6.dp),
-    ) {
-        val style = androidx.compose.ui.text.TextStyle(
-            fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Color.White,
-        )
-        rows.forEach { (name, raw, contribution) ->
-            Row(Modifier.width(150.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(name, style = style)
-                Text("%s +%.1f".format(raw, contribution * 100), style = style)
-            }
-        }
-        Text("ham skor: %.1f".format(fatigue.rawScore), style = style.copy(color = Color(0xFFB0BEC5)))
+    Text("Yorgunluk: ham %.1f".format(fatigue.rawScore), style = style)
+    rows.forEach { (name, raw, contribution) ->
+        // Ör. "  Esneme   2/10dk  +7.5"  → ölçüm ve skora katkısı (puan)
+        Text("  %-10s%-8s+%.1f".format(name, raw, contribution * 100), style = style)
     }
 }
 

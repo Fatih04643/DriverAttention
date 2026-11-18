@@ -138,6 +138,21 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
             }
         }
 
+        if (s.debugMode) {
+            SwitchSetting(
+                "Hızı simüle et",
+                s.simulateSpeed,
+                hint = "GPS yerine elle hız verir. Hıza duyarlı uyarıları masa başında test etmek için — " +
+                    "araç kullanırken uygulamayı test etmeyin.",
+            ) { v -> viewModel.update { it.copy(simulateSpeed = v) } }
+            if (s.simulateSpeed) {
+                SliderSetting(
+                    label = "Simüle hız", value = s.simulatedSpeedKmh, range = 0f..150f, steps = 29,
+                    format = { "%d km/s".format(it.roundToInt()) },
+                ) { v -> viewModel.update { it.copy(simulatedSpeedKmh = v) } }
+            }
+        }
+
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         OutlinedButton(onClick = viewModel::resetToDefaults, modifier = Modifier.fillMaxWidth()) {
             Text("Varsayılanlara dön")

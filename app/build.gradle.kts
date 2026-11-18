@@ -76,6 +76,9 @@ dependencies {
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.compose.material.icons.core)
 
+    // GPS hızı (Faz 8): Google Play Services birleşik konum sağlayıcısı
+    implementation(libs.play.services.location)
+
     // analysis/ paketindeki saf Kotlin sınıfları için birim testleri
     testImplementation(libs.junit)
 }
