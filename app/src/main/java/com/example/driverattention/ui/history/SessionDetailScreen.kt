@@ -47,6 +47,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.driverattention.alert.displayMessage
 import com.example.driverattention.alert.shortLabel
 import com.example.driverattention.analysis.AlertLevel
+import com.example.driverattention.analysis.FatigueLevel
+import com.example.driverattention.ui.monitor.color
+import com.example.driverattention.ui.monitor.label
 import com.example.driverattention.data.SessionWithAlerts
 import java.io.File
 
@@ -111,8 +114,30 @@ fun SessionDetailScreen(
             }
         }
 
-        // ---- Zaman çizelgesi ----
-        item {
+        // ---- Yorgunluk skoru–zaman grafiği (Faz 7) ----
+        // Faz 7'den önceki oturumlarda skor kaydı yok: onlar için eski zaman çizelgesi gösterilir
+        if (item.scores.isNotEmpty()) item {
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Yorgunluk skoru", fontWeight = FontWeight.Bold)
+                    item.peakFatigue?.let { peak ->
+                        val level = FatigueLevel.fromScore(peak)
+                        Text(
+                            "En yüksek: %.0f (%s) · Ortalama: %.0f".format(
+                                peak, level.label(), item.scores.map { it.score }.average(),
+                            ),
+                            color = level.color(),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    FatigueChart(item)
+                    FatigueChartLegend()
+                }
+            }
+        }
+
+        // ---- Zaman çizelgesi (skor kaydı olmayan eski oturumlar) ----
+        if (item.scores.isEmpty()) item {
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Text("Zaman çizelgesi", fontWeight = FontWeight.Bold)

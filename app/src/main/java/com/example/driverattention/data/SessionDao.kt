@@ -19,6 +19,9 @@ interface SessionDao {
     @Insert
     fun insertAlert(alert: AlertRecordEntity)
 
+    @Insert
+    fun insertScore(score: FatigueScoreEntity)
+
     /** Tüm oturumlar, en yenisi üstte. Flow: veri değişince ekran otomatik güncellenir */
     @Transaction
     @Query("SELECT * FROM sessions ORDER BY startTime DESC")

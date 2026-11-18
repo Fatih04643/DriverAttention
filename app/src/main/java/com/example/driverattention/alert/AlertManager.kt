@@ -15,6 +15,7 @@ import android.util.Log
 import com.example.driverattention.analysis.AlertEvent
 import com.example.driverattention.analysis.AlertLevel
 import com.example.driverattention.analysis.AlertType
+import com.example.driverattention.analysis.FatigueLevel
 import java.util.Locale
 
 /** Ekranda gösterilecek kısa uyarı metni */
@@ -125,6 +126,30 @@ class AlertManager(context: Context) {
         if (soundEnabled) toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 300)
         vibrate(longArrayOf(0, 250), intArrayOf(0, 200))
         type.spokenMessage()?.let { msg -> mainHandler.postDelayed({ speak(msg) }, 400) }
+    }
+
+    /**
+     * Yorgunluk skoru uyarısı (Faz 7). Ne zaman çağrılacağına FatigueScoreCalculator karar
+     * verir (10 dk'da en fazla 1 kez, seviye yükselirse hemen).
+     *  - TIRED (60–79)      : sesli öneri
+     *  - VERY_TIRED (80–100): titreşim + sesli uyarı
+     * Sesli uyarı kapalıysa sürücü fark etsin diye kısa bir bip çalınır.
+     */
+    fun announceFatigue(level: FatigueLevel) {
+        val message = when (level) {
+            FatigueLevel.TIRED -> "Yorgunluk belirtileri artıyor, mola vermeyi düşünün."
+            FatigueLevel.VERY_TIRED -> "Lütfen en kısa sürede mola verin."
+            else -> return
+        }
+        if (level == FatigueLevel.VERY_TIRED) {
+            vibrate(longArrayOf(0, 400, 200, 400), intArrayOf(0, 255, 0, 255))
+        }
+        if (voiceEnabled && ttsReady) {
+            // QUEUE_ADD: o an çalan kritik bir uyarıyı kesmesin, ardından söylensin
+            mainHandler.post { tts.speak(message, TextToSpeech.QUEUE_ADD, null, "fatigue") }
+        } else if (soundEnabled) {
+            toneGenerator?.startTone(ToneGenerator.TONE_PROP_BEEP2, 300)
+        }
     }
 
     private fun vibrate(timings: LongArray, amplitudes: IntArray) {

@@ -35,6 +35,9 @@ data class AppSettings(
     val lowLightEnhancement: Boolean = true, // karanlıkta histogram eşitleme
     val showOverlay: Boolean = true,
     val debugMode: Boolean = true, // FPS/ölçüm paneli + CSV kaydı
+    // Debug: yorgunluk skorunu elle ayarla (sesli uyarı / mola butonu masa başında denensin diye)
+    val simulateFatigue: Boolean = false,
+    val simulatedFatigueScore: Float = 50f,
 ) {
     /** Kalibrasyon sonucunu da hesaba katarak karar motoru yapılandırmasını üretir */
     fun toDetectionConfig(calibration: CalibrationResult?) = DetectionConfig(
@@ -72,6 +75,8 @@ class SettingsRepository(context: Context) {
         val LOW_LIGHT = booleanPreferencesKey("low_light")
         val OVERLAY = booleanPreferencesKey("overlay")
         val DEBUG = booleanPreferencesKey("debug")
+        val SIM_FATIGUE = booleanPreferencesKey("sim_fatigue")
+        val SIM_FATIGUE_SCORE = floatPreferencesKey("sim_fatigue_score")
     }
 
     val settings: Flow<AppSettings> = dataStore.data.map { p ->
@@ -91,6 +96,8 @@ class SettingsRepository(context: Context) {
             lowLightEnhancement = p[Keys.LOW_LIGHT] ?: d.lowLightEnhancement,
             showOverlay = p[Keys.OVERLAY] ?: d.showOverlay,
             debugMode = p[Keys.DEBUG] ?: d.debugMode,
+            simulateFatigue = p[Keys.SIM_FATIGUE] ?: d.simulateFatigue,
+            simulatedFatigueScore = p[Keys.SIM_FATIGUE_SCORE] ?: d.simulatedFatigueScore,
         )
     }
 
@@ -110,6 +117,8 @@ class SettingsRepository(context: Context) {
             p[Keys.LOW_LIGHT] = s.lowLightEnhancement
             p[Keys.OVERLAY] = s.showOverlay
             p[Keys.DEBUG] = s.debugMode
+            p[Keys.SIM_FATIGUE] = s.simulateFatigue
+            p[Keys.SIM_FATIGUE_SCORE] = s.simulatedFatigueScore
         }
     }
 

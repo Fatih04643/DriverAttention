@@ -123,6 +123,20 @@ fun SettingsScreen(viewModel: SettingsViewModel = viewModel()) {
             s.debugMode,
             hint = "FPS / ölçüm panelini gösterir ve her oturumun ölçümlerini CSV dosyasına kaydeder.",
         ) { v -> viewModel.update { it.copy(debugMode = v) } }
+        if (s.debugMode) {
+            SwitchSetting(
+                "Yorgunluk skorunu simüle et",
+                s.simulateFatigue,
+                hint = "Skoru elle ayarlar; sesli uyarıyı ve mola yeri butonunu masa başında denemek için. " +
+                    "Açıkken göstergede SİMÜLASYON yazar ve simüle değer kaydedilir.",
+            ) { v -> viewModel.update { it.copy(simulateFatigue = v) } }
+            if (s.simulateFatigue) {
+                SliderSetting(
+                    label = "Simüle skor", value = s.simulatedFatigueScore, range = 0f..100f, steps = 19,
+                    format = { "%d".format(it.roundToInt()) },
+                ) { v -> viewModel.update { it.copy(simulatedFatigueScore = v) } }
+            }
+        }
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         OutlinedButton(onClick = viewModel::resetToDefaults, modifier = Modifier.fillMaxWidth()) {

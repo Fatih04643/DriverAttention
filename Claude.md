@@ -112,3 +112,73 @@ Aynı uyarı art arda tetiklenmesin (cooldown, ~5 sn).
 6. (Opsiyonel) TFLite göz sınıflandırıcı, düşük ışık iyileştirmesi (histogram eşitleme), birim testlerinin tamamlanması
 
 Bir faz bitmeden sonrakine geçme.
+
+**Faz 1–6 tamamlandı.** Aşağıdaki fazlar geliştirme aşamasıdır.
+
+---
+
+## Faz 7 — Yorgunluk Skoru (0–100)
+
+Tek tek uyarıların ötesinde, sürücünün genel yorgunluğunu sürekli izleyen bir skor.
+
+`analysis/FatigueScoreCalculator.kt` (saf Kotlin, birim testli). Her bileşen 0–1 arasına normalize edilir:
+
+| Bileşen | Normalizasyon | Ağırlık |
+|---|---|---|
+| PERCLOS (60 sn) | `min(PERCLOS / 0.30, 1)` | 0.35 |
+| Uzun göz kapanmaları (> 0.5 sn), son 5 dk | `min(sayı / 5, 1)` | 0.20 |
+| Esneme sayısı, son 10 dk | `min(sayı / 4, 1)` | 0.15 |
+| Dikkat dağınıklığı olayları, son 5 dk | `min(sayı / 5, 1)` | 0.10 |
+| Kesintisiz sürüş süresi | `min(dakika / 120, 1)` | 0.10 |
+| Göz kırpma süresi ortalaması (son 2 dk) | `clamp((ort_ms - 150) / 250, 0, 1)` | 0.10 |
+
+`skor = 100 * Σ(ağırlık * bileşen)`, ardından üstel hareketli ortalama (α = 0.05, saniyede bir güncelleme) ile yumuşatılır. Ağırlıklar ve sınırlar `Settings`'ten değil, sabitler dosyasından gelsin (raporda tablo olarak verilecek).
+
+Seviyeler:
+| Skor | Seviye | Davranış |
+|---|---|---|
+| 0–29 | Normal (yeşil) | — |
+| 30–59 | Hafif yorgun (sarı) | Ekranda bilgi |
+| 60–79 | Yorgun (turuncu) | TTS: "Yorgunluk belirtileri artıyor, mola vermeyi düşünün." (10 dk'da en fazla 1 kez) |
+| 80–100 | Çok yorgun (kırmızı) | TTS + titreşim: "Lütfen en kısa sürede mola verin." + "Mola yeri bul" butonu |
+
+- "Mola yeri bul" butonu: `geo:0,0?q=dinlenme tesisi` / `benzin istasyonu` intent'iyle harita uygulamasını açar.
+- Monitor ekranında yarım daire gösterge (gauge) + bileşen dökümü (debug modda).
+- Skor zaman serisi Room'a kaydedilsin (her 10 sn); History'deki oturum detayında **skor–zaman grafiği** (Compose Canvas ile çiz, ek kütüphane gerekirse Vico kullan) ve uyarıların grafikteki işaretleri.
+- CSV'ye `fatigue_score` sütunu ekle.
+
+## Faz 8 — Hıza Duyarlı Uyarılar (GPS)
+
+Araç dururken (kırmızı ışık, park) gereksiz alarm çalmasın; hız arttıkça dikkat dağınıklığı toleransı azalsın.
+
+- `ACCESS_FINE_LOCATION` izni; `FusedLocationProviderClient`, 1 sn aralık. Hız `Location.speed` (m/s → km/s), son 3 ölçümün medyanı. GPS yok/izin yoksa: hız bilinmiyor → mevcut (Faz 4) davranış.
+- `analysis/SpeedPolicy.kt` (saf Kotlin, birim testli):
+
+| Hız | Dikkat dağınıklığı süresi | Mikro uyku | Diğer |
+|---|---|---|---|
+| < 5 km/s (duruyor) | uyarı yok | sadece görsel uyarı | esneme/PERCLOS kaydedilir, uyarı yok |
+| 5–30 km/s | 3.0 sn | normal | normal |
+| 30–70 km/s | 2.0 sn | normal | normal |
+| 70–100 km/s | 1.5 sn | normal | normal |
+| > 100 km/s | 1.0 sn | normal + daha yüksek ses | normal |
+
+- Monitor ekranında anlık hız ve "Duruyor / Sürüşte" rozeti.
+- **Simülasyon modu (zorunlu):** Settings → Debug'da "Hızı simüle et" anahtarı + 0–150 km/s kaydırıcı. Geliştirici araç kullanırken test yapmamalı; tüm testler simüle hızla masa başında yapılabilmeli. Simülasyon açıkken ekranda belirgin "SİMÜLASYON" etiketi.
+- CSV'ye `speed_kmh` ve `speed_source` (gps/sim/none) sütunları ekle.
+
+## Faz 9 — CNN Göz Durumu Modeli (TFLite)
+
+Model Colab'da eğitildi (`goz_modeli_egitimi.ipynb`). `app/src/main/assets/` içinde `eye_state.tflite` ve `model_info.json` var. **Ön işlemeyi `model_info.json`'daki adımlara birebir uy** — eğitimle aynı olmazsa model yanlış çalışır.
+
+- Bağımlılık: TensorFlow Lite / LiteRT Android runtime (güncel kararlı). Mümkünse GPU delegate, olmazsa XNNPACK CPU.
+- `detection/EyeStateClassifier.kt`:
+  - Giriş `[1,64,64,1] float32`, gri tonlama `0.299R+0.587G+0.114B`, `/255`.
+  - Göz kutusu: sol göz landmark 33,133,159,145 / sağ göz 362,263,386,374 → kare kutu + her yöne göz genişliğinin %30'u pay. Görüntü sınırlarına clamp.
+  - Kırpmayı **aynalanmamış** analiz karesinden yap (önizleme aynalı olabilir, analiz karesi değil).
+  - İki göz ayrı çalıştırılır, çıktıların ortalaması = `closedProb`. Eşik `model_info.json`'daki `threshold`.
+  - Debug modda kırpılmış 64x64 göz görüntülerini ekranın köşesinde küçük göster (doğru kırpıldığını görmek için).
+- Settings'e **Göz durumu yöntemi** seçeneği: `EAR` / `CNN` / `Hibrit` (varsayılan Hibrit).
+  - Hibrit: göz kapalı ⇔ `EAR < eşik` VE `closedProb > threshold`; veya ikisinden biri çok güçlüyse (`EAR < 0.8*eşik` veya `closedProb > 0.9`).
+- Seçili yöntemden bağımsız olarak **her karede üç yöntemin de kararını hesapla ve CSV'ye yaz**: `ear_closed`, `cnn_prob`, `cnn_closed`, `hybrid_closed`, ayrıca `cnn_ms` (çıkarım süresi). Bu, raporda yöntem karşılaştırması için.
+- **Etiketleme modu (Debug):** Ekranda basılı tutulan bir "Gözlerim kapalı" butonu; basılıyken CSV'de `ground_truth=1`, değilken `0`. Böylece geliştirici kendi yüzüyle etiketli test verisi toplayıp üç yöntemin doğruluğunu karşılaştırabilir.
+- Debug ekranında: CNN çıkarım süresi (ms), toplam FPS (CNN eklenince FPS düşüşünü raporda göstermek için).

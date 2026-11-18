@@ -10,6 +10,9 @@ data class FaceMetrics(
     val ear: Float,          // iki gözün ortalaması
     val mar: Float,
     val headPose: HeadPose?, // matris yoksa null
+    // Yumuşatılmamış EAR: göz kırpma SÜRESİNİ ölçmek için (Faz 7). 5 karelik ortalama
+    // ~150 ms'lik kırpmaları yayar ve süreyi bozar; bu yüzden ham değer ayrıca tutulur.
+    val rawEar: Float = ear,
 )
 
 /**
@@ -44,6 +47,7 @@ class FaceMetricsCalculator(windowSize: Int = 5) {
             ear = (left + right) / 2f,
             mar = mar,
             headPose = pose,
+            rawEar = (rawLeft + rawRight) / 2f,
         )
     }
 

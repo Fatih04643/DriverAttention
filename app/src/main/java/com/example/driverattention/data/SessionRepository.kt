@@ -48,6 +48,15 @@ class SessionRepository private constructor(context: Context) {
         }
     }
 
+    /** Yorgunluk skorunu açık oturuma ekler (ViewModel 10 sn'de bir çağırır) */
+    fun recordScore(score: Float) {
+        val now = System.currentTimeMillis()
+        writeExecutor.execute {
+            val sessionId = currentSessionId ?: return@execute
+            dao.insertScore(FatigueScoreEntity(sessionId = sessionId, timestamp = now, score = score))
+        }
+    }
+
     fun recordAlerts(events: List<AlertEvent>) {
         val now = System.currentTimeMillis()
         writeExecutor.execute {

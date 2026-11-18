@@ -26,6 +26,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.driverattention.alert.shortLabel
 import com.example.driverattention.analysis.AlertType
+import com.example.driverattention.analysis.FatigueLevel
+import com.example.driverattention.ui.monitor.color
+import com.example.driverattention.ui.monitor.label
 import com.example.driverattention.data.SessionWithAlerts
 
 /** Geçmiş sürüş oturumları listesi */
@@ -81,6 +84,14 @@ private fun SessionCard(item: SessionWithAlerts, onClick: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (critical > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
+            item.peakFatigue?.let { peak ->
+                val level = FatigueLevel.fromScore(peak)
+                Text(
+                    "En yüksek yorgunluk: %.0f (%s)".format(peak, level.label()),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = level.color(),
+                )
+            }
             if (counts.isNotEmpty()) {
                 Text(
                     counts.entries

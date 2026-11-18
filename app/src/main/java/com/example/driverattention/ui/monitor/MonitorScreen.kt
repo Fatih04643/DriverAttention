@@ -42,6 +42,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.ButtonDefaults
 import com.example.driverattention.analysis.AlertLevel
+import com.example.driverattention.analysis.FatigueLevel
 import com.example.driverattention.camera.CameraPreview
 import com.example.driverattention.ui.calibration.CalibrationOverlay
 
@@ -184,12 +185,18 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
             }
         }
 
-        // Sağ üst: durum göstergesi
-        StatusIndicator(
-            mode = state.mode,
-            status = state.status,
+        // Sağ üst: durum göstergesi + yorgunluk göstergesi (Faz 7)
+        Column(
             modifier = Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(12.dp),
-        )
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatusIndicator(mode = state.mode, status = state.status)
+            state.fatigue?.let { fatigue ->
+                FatigueGauge(fatigue)
+                if (state.debugMode) FatigueBreakdown(fatigue)
+            }
+        }
 
         // Alt: uyarı banner'ı + kontrol butonları
         Column(
@@ -201,6 +208,10 @@ private fun MonitorContent(viewModel: MonitorViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             state.status?.let { AlertBanner(it) }
+            // Çok yorgun (80+): yakındaki mola yerlerini haritada aç
+            if (state.fatigue?.level == FatigueLevel.VERY_TIRED) {
+                RestStopButtons()
+            }
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.mode == MonitorMode.MONITORING) {

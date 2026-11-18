@@ -14,6 +14,10 @@ import com.example.driverattention.analysis.DriverStateEngine
 import com.example.driverattention.analysis.DriverStatus
 import com.example.driverattention.analysis.FaceMetrics
 import com.example.driverattention.analysis.FaceMetricsCalculator
+import com.example.driverattention.analysis.AlertType
+import com.example.driverattention.analysis.FatigueScore
+import com.example.driverattention.analysis.FatigueScoreCalculator
+import com.example.driverattention.analysis.FatigueScoreConstants
 import com.example.driverattention.analysis.Point2
 import com.example.driverattention.camera.FrameAnalyzer
 import com.example.driverattention.camera.FrameInfo
@@ -59,6 +63,7 @@ data class MonitorUiState(
     val brightness: Float = 0f,          // kamera karesinin ortalama parlaklığı
     val lowLightActive: Boolean = false, // bu karede histogram eşitleme uygulandı mı
     val preprocessMs: Long = 0,
+    val fatigue: FatigueScore? = null, // sadece izleme sırasında dolu (Faz 7)
     val csvRecording: Boolean = false,
     val error: String? = null,
 )
@@ -83,6 +88,8 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     private var helper: FaceLandmarkerHelper? = null
     private val metricsCalculator = FaceMetricsCalculator(windowSize = 5)
     private val engine = DriverStateEngine()
+    private var fatigueCalculator = FatigueScoreCalculator()
+    private var lastScoreSaveMs: Long? = null
     private val alertManager = AlertManager(app)
     private val sessionRepository = SessionRepository.get(app)
     private val settingsRepository = SettingsRepository(app)
@@ -173,12 +180,30 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                         alertManager.onAlerts(output.newAlerts)
                         sessionRepository.recordAlerts(output.newAlerts)
                     }
+
+                    // ---- Yorgunluk skoru (Faz 7) ----
+                    // Kırpma süresi için yumuşatılmamış EAR kullanılır (bkz. FaceMetrics.rawEar)
+                    val fatigue = fatigueCalculator.update(
+                        timestampMs = frame.timestampMs,
+                        eyesClosed = metrics?.let { it.rawEar < engine.config.earThreshold },
+                        perclos = output.status.perclos,
+                        yawnActive = AlertType.YAWN in output.status.activeConditions,
+                        distractionActive = AlertType.DISTRACTION in output.status.activeConditions,
+                        overrideScore = if (settings.simulateFatigue) settings.simulatedFatigueScore else null,
+                    )
+                    fatigue.announcement?.let { alertManager.announceFatigue(it) }
+                    val lastSave = lastScoreSaveMs
+                    if (lastSave == null || frame.timestampMs - lastSave >= FatigueScoreConstants.SAVE_INTERVAL_MS) {
+                        sessionRepository.recordScore(fatigue.score)
+                        lastScoreSaveMs = frame.timestampMs
+                    }
+
                     val info = lastFrameInfo
                     csvLogger?.log(
                         frame.timestampMs, metrics, output.status, lastFps, frame.processingTimeMs,
-                        info.brightness, info.enhanced,
+                        info.brightness, info.enhanced, fatigue.score,
                     )
-                    _uiState.update { it.copy(status = output.status) }
+                    _uiState.update { it.copy(status = output.status, fatigue = fatigue) }
                 }
                 MonitorMode.STOPPED -> Unit
             }
@@ -245,6 +270,9 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     private fun beginMonitoring(newCalibration: CalibrationResult?) {
         calibration = newCalibration
         engine.config = settings.toDetectionConfig(newCalibration) // motoru da sıfırlar
+        // Yeni oturum = yeni sürüş: skor ve "kesintisiz sürüş süresi" sıfırdan başlar (mola verildi)
+        fatigueCalculator = FatigueScoreCalculator()
+        lastScoreSaveMs = null
         mode = MonitorMode.MONITORING
 
         sessionRepository.startSession(engine.config.earThreshold, calibrated = newCalibration != null)
@@ -257,6 +285,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
                 calibration = newCalibration,
                 earThreshold = engine.config.earThreshold,
                 status = null,
+                fatigue = null,
                 csvRecording = csvLogger != null,
             )
         }
@@ -284,7 +313,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
         calibrationFailed = false
         calibrationSamples.clear()
         _uiState.update {
-            it.copy(mode = mode, calibrationStep = CalibrationStep.Countdown(3), status = null)
+            it.copy(mode = mode, calibrationStep = CalibrationStep.Countdown(3), status = null, fatigue = null)
         }
     }
 
@@ -301,7 +330,7 @@ class MonitorViewModel(app: Application) : AndroidViewModel(app) {
     fun stopMonitoring() = synchronized(lock) {
         endSessionIfMonitoring()
         mode = MonitorMode.STOPPED
-        _uiState.update { it.copy(mode = mode, status = null) }
+        _uiState.update { it.copy(mode = mode, status = null, fatigue = null) }
     }
 
     fun toggleOverlay() {

@@ -45,9 +45,34 @@ data class AlertRecordEntity(
     val level: String, // AlertLevel.name
 )
 
-/** Oturum + o oturumun tüm uyarıları (Room @Relation ile tek sorguda) */
+/**
+ * Yorgunluk skoru zaman serisi (Faz 7): izleme sırasında 10 sn'de bir kaydedilir,
+ * oturum detayındaki skor–zaman grafiği bu tablodan çizilir.
+ */
+@Entity(
+    tableName = "fatigue_scores",
+    foreignKeys = [
+        ForeignKey(
+            entity = SessionEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["sessionId"],
+            onDelete = ForeignKey.CASCADE,
+        )
+    ],
+    indices = [Index("sessionId")],
+)
+data class FatigueScoreEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val sessionId: Long,
+    val timestamp: Long,
+    val score: Float,
+)
+
+/** Oturum + o oturumun tüm uyarıları ve skorları (Room @Relation ile tek sorguda) */
 data class SessionWithAlerts(
     @Embedded val session: SessionEntity,
     @Relation(parentColumn = "id", entityColumn = "sessionId")
     val alerts: List<AlertRecordEntity>,
+    @Relation(parentColumn = "id", entityColumn = "sessionId")
+    val scores: List<FatigueScoreEntity> = emptyList(),
 )
