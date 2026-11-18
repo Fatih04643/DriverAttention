@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider'ın paylaşabileceği klasörler: sadece CSV ölçüm dosyaları -->
+<paths>
+    <external-files-path name="csv" path="csv/" />
+    <files-path name="csv_internal" path="csv/" />
+</paths>

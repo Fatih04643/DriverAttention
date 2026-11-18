@@ -1,0 +1,11 @@
+# Metin dosyalarında satır sonlarını git yönetsin
+* text=auto
+
+# gradlew bir Unix kabuk betiği: her zaman LF olmalı, yoksa Linux/Mac'te çalışmaz
+gradlew text eol=lf
+*.bat text eol=crlf
+
+# İkili dosyalar: asla dönüştürme / fark gösterme
+*.jar binary
+*.task binary
+*.png binary

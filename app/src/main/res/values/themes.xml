@@ -1,0 +1,6 @@
+<resources>
+    <!-- Asıl tema Compose (Material 3) içinde; bu sadece pencere arka planı için -->
+    <style name="Theme.DriverAttention" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+    </style>
+</resources>

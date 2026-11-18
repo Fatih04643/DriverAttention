@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.kotlin/
+captures/
+
+# İşletim sistemi / editör dosyaları
+.DS_Store
+Thumbs.db
